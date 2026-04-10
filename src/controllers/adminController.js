@@ -17,7 +17,7 @@ const login = async (req, res, next) => {
     }
     res.json({
       token: generateToken(admin._id),
-      admin: { id: admin._id, email: admin.email, name: admin.name },
+      admin: { id: admin._id, email: admin.email, name: admin.name, isMain: admin.isMain },
     });
   } catch (error) { next(error); }
 };
@@ -29,10 +29,8 @@ const getDashboard = async (req, res, next) => {
     today.setHours(0, 0, 0, 0);
     const endOfToday = new Date();
     endOfToday.setHours(23, 59, 59, 999);
-
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
 
-    // Estadísticas generales
     const [totalToday, totalMonth, totalCancelled, upcomingAppointments, monthlyStats] = await Promise.all([
       Appointment.countDocuments({ date: { $gte: today, $lte: endOfToday }, status: { $ne: "cancelled" } }),
       Appointment.countDocuments({ date: { $gte: startOfMonth }, status: { $ne: "cancelled" } }),
@@ -41,7 +39,6 @@ const getDashboard = async (req, res, next) => {
         .populate(["service", "barber"])
         .sort({ date: 1, timeSlot: 1 })
         .limit(10),
-      // Ingresos del mes
       Appointment.aggregate([
         { $match: { date: { $gte: startOfMonth }, status: { $ne: "cancelled" } } },
         { $lookup: { from: "services", localField: "service", foreignField: "_id", as: "serviceData" } },
@@ -50,9 +47,11 @@ const getDashboard = async (req, res, next) => {
       ]),
     ]);
 
-    const monthlyRevenue = monthlyStats[0]?.total || 0;
-
-    res.json({ totalToday, totalMonth, totalCancelled, monthlyRevenue, upcomingAppointments });
+    res.json({
+      totalToday, totalMonth, totalCancelled,
+      monthlyRevenue: monthlyStats[0]?.total || 0,
+      upcomingAppointments,
+    });
   } catch (error) { next(error); }
 };
 
@@ -61,7 +60,6 @@ const getAllAppointments = async (req, res, next) => {
   try {
     const { date, status, barberId, page = 1, limit = 20 } = req.query;
     const filter = {};
-
     if (date) {
       const start = new Date(date); start.setHours(0, 0, 0, 0);
       const end = new Date(date); end.setHours(23, 59, 59, 999);
@@ -95,6 +93,25 @@ const updateAppointmentStatus = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+// DELETE /api/admin/appointments/cancelled — limpia cancelados de hace más de X días
+const cleanCancelledAppointments = async (req, res, next) => {
+  try {
+    const { days = 30 } = req.query;
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - Number(days));
+
+    const result = await Appointment.deleteMany({
+      status: "cancelled",
+      updatedAt: { $lt: cutoffDate },
+    });
+
+    res.json({
+      message: `Se eliminaron ${result.deletedCount} turnos cancelados de hace más de ${days} días`,
+      deletedCount: result.deletedCount,
+    });
+  } catch (error) { next(error); }
+};
+
 // --- Barberos ---
 const getBarbers = async (req, res, next) => {
   try {
@@ -118,7 +135,6 @@ const updateBarber = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
-// PATCH /api/admin/barbers/:id/availability — toggle disponibilidad
 const toggleBarberAvailability = async (req, res, next) => {
   try {
     const { isAvailable, unavailableReason } = req.body;
@@ -169,7 +185,37 @@ const deleteService = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
-// GET /api/admin/stats/monthly — turnos por mes (últimos 6 meses)
+// --- Admins ---
+// Solo el admin principal puede crear/ver/eliminar otros admins
+const getAdmins = async (req, res, next) => {
+  try {
+    if (!req.admin.isMain) return res.status(403).json({ message: "Solo el administrador principal puede gestionar usuarios" });
+    const admins = await Admin.find().select("-password").sort({ createdAt: 1 });
+    res.json(admins);
+  } catch (error) { next(error); }
+};
+
+const createAdminUser = async (req, res, next) => {
+  try {
+    if (!req.admin.isMain) return res.status(403).json({ message: "Solo el administrador principal puede crear usuarios" });
+    const { email, password, name } = req.body;
+    const exists = await Admin.findOne({ email });
+    if (exists) return res.status(409).json({ message: "Ya existe un administrador con ese email" });
+    const admin = await Admin.create({ email, password, name, isMain: false });
+    res.status(201).json({ message: "Administrador creado", admin: { id: admin._id, email: admin.email, name: admin.name } });
+  } catch (error) { next(error); }
+};
+
+const deleteAdminUser = async (req, res, next) => {
+  try {
+    if (!req.admin.isMain) return res.status(403).json({ message: "Solo el administrador principal puede eliminar usuarios" });
+    if (req.params.id === req.admin._id.toString()) return res.status(400).json({ message: "No podés eliminarte a vos mismo" });
+    await Admin.findByIdAndDelete(req.params.id);
+    res.json({ message: "Administrador eliminado" });
+  } catch (error) { next(error); }
+};
+
+// GET /api/admin/stats/monthly
 const getMonthlyStats = async (req, res, next) => {
   try {
     const sixMonthsAgo = new Date();
@@ -196,8 +242,9 @@ const getMonthlyStats = async (req, res, next) => {
 };
 
 module.exports = {
-  login, getDashboard, getAllAppointments, updateAppointmentStatus,
+  login, getDashboard, getAllAppointments, updateAppointmentStatus, cleanCancelledAppointments,
   getBarbers, createBarber, updateBarber, toggleBarberAvailability, deleteBarber,
   getServices, createService, updateService, deleteService,
+  getAdmins, createAdminUser, deleteAdminUser,
   getMonthlyStats,
 };

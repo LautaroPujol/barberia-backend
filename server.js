@@ -8,18 +8,17 @@ const Service = require("./src/models/Service");
 const PORT = process.env.PORT || 3001;
 
 const seedDatabase = async () => {
-  // Crear admin por defecto si no existe ninguno
   const adminCount = await Admin.countDocuments();
   if (adminCount === 0) {
     await Admin.create({
       email: process.env.ADMIN_EMAIL || "admin@barberco.com",
-      password: process.env.ADMIN_PASSWORD || "Admin1234!",
-      name: "Administrador",
+      password: process.env.ADMIN_PASSWORD || "Admin1234",
+      name: "Administrador Principal",
+      isMain: true, // ← admin principal
     });
-    console.log("👤 Admin creado:", process.env.ADMIN_EMAIL);
+    console.log("👤 Admin principal creado:", process.env.ADMIN_EMAIL);
   }
 
-  // Crear barberos de ejemplo si no hay ninguno
   const barberCount = await Barber.countDocuments();
   if (barberCount === 0) {
     await Barber.insertMany([
@@ -30,7 +29,6 @@ const seedDatabase = async () => {
     console.log("💈 Barberos de ejemplo creados");
   }
 
-  // Crear servicios de ejemplo si no hay ninguno
   const serviceCount = await Service.countDocuments();
   if (serviceCount === 0) {
     await Service.insertMany([
