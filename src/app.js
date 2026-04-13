@@ -47,7 +47,7 @@ app.use("/api", globalLimiter);
 // ── Rate limiting estricto para login ────────────────────
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10, // solo 10 intentos de login por 15 min
+  max: process.env.NODE_ENV === "production" ? 10 : 100,
   message: { message: "Demasiados intentos de login. Intentá de nuevo en 15 minutos." },
   standardHeaders: true,
   legacyHeaders: false,
@@ -57,7 +57,7 @@ app.use("/api/admin/login", loginLimiter);
 // ── Rate limiting para reservas ──────────────────────────
 const bookingLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hora
-  max: 5, // max 5 reservas por IP por hora
+  max: process.env.NODE_ENV === "production" ? 5 : 100,
   message: { message: "Demasiadas reservas. Intentá de nuevo en una hora." },
   standardHeaders: true,
   legacyHeaders: false,
