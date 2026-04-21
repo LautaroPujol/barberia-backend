@@ -9,6 +9,7 @@ const adminSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
       trim: true,
+      match: [/\S+@\S+\.\S+/, "El email no es válido"],
     },
     password: {
       type: String,
